@@ -1,0 +1,269 @@
+package compiladores;
+
+import java_cup.runtime.*;
+import java.util.ArrayList; // Necesario para la lista de errores
+import java.util.List;    // Necesario para la lista de errores
+
+/* ---------------------- Código de Usuario (Parser Code) ---------------------- */
+parser code {:
+    // Lista para almacenar los mensajes de error de sintaxis
+    private List<String> erroresSintaxis = new ArrayList<>();
+
+    // Métodos para el reporte de errores (llamados por CUP)
+    // Mantenemos las firmas que CUP espera, pero personalizamos el mensaje y lo guardamos.
+    public void report_error(String message, Object info) {
+        StringBuilder mensajeError = new StringBuilder();
+
+        if (info instanceof java_cup.runtime.Symbol) {
+            java_cup.runtime.Symbol simbolo = (java_cup.runtime.Symbol) info;
+            // El 'message' de CUP a veces es genérico como "Syntax error".
+            // Podemos intentar ser más específicos si tenemos el token.
+            if (simbolo.left >= 0) { // s.left es la línea (0-indexed)
+                mensajeError.append("Error en línea ").append(simbolo.left + 1);
+                if (simbolo.right >= 0) { // s.right es la columna (0-indexed)
+                    mensajeError.append(", columna ").append(simbolo.right + 1);
+                }
+            } else {
+                mensajeError.append(message); // Usar mensaje de CUP si no hay info de posición
+            }
+
+            // Añadir información sobre el token problemático
+            String nombreToken = "desconocido"; // Valor por defecto
+            if (simbolo.sym >= 0 && simbolo.sym < sym.terminalNames.length && sym.terminalNames[simbolo.sym] != null) {
+                nombreToken = sym.terminalNames[simbolo.sym]; // Nombre del tipo de token
+            }
+            if (simbolo.value != null) {
+                 mensajeError.append(". Token problemático: <").append(simbolo.value.toString()).append(">");
+                 if (!nombreToken.equals(simbolo.value.toString()) && !nombreToken.equals("desconocido")) {
+                    mensajeError.append(" (tipo: ").append(nombreToken).append(")");
+                 }
+            } else if (!nombreToken.equals("desconocido")) {
+                mensajeError.append(". Se encontró un token de tipo ").append(nombreToken);
+            }
+
+        } else {
+            mensajeError.append(message); // Mensaje genérico si 'info' no es un Symbol
+        }
+        erroresSintaxis.add(mensajeError.toString());
+        System.err.println(mensajeError.toString()); // Opcional: imprimir a consola también
+    }
+
+    public void syntax_error(Symbol tokenActual) {
+        // Este método es llamado por CUP para errores de sintaxis "recuperables"
+        // o cuando se encuentra un token inesperado.
+        report_error("Token inesperado", tokenActual);
+    }
+
+    public void unrecovered_syntax_error(Symbol tokenActual) throws java.lang.Exception {
+        // Este método es llamado por CUP para errores fatales no recuperables.
+        report_error("Error de sintaxis irrecuperable", tokenActual);
+        // Es importante lanzar una excepción para detener el parsing si es irrecuperable.
+        throw new Exception("Error de sintaxis irrecuperable. No se puede continuar con el análisis.");
+    }
+
+    // Método público para que el código externo (ej. CodeProcessor) obtenga los errores.
+    public List<String> obtenerErroresSintaxis() {
+        return erroresSintaxis;
+    }
+:};
+
+/* -------------------- Declaraciones de Terminales (Tokens) -------------------- */
+// Palabras Clave
+terminal DEFINE, PRINT, IF, ELSE, ELSEIF, WHILE, LOOP, FUNCTION, RETURN, END, DO, THEN;
+
+// Literales (con tipo para aquellos que llevan un valor)
+terminal Integer LITERAL_ENTERO;
+terminal Float   LITERAL_FLOTANTE;
+terminal String  LITERAL_CADENA;
+terminal Boolean TRUE;  // Para 'true'
+terminal Boolean FALSE; // Para 'false'
+
+// Identificadores
+terminal String IDENTIFICADOR;
+
+// Operadores Aritméticos
+terminal SUMA, RESTA, MULTIPLICACION, DIVISION;
+
+// Operadores Relacionales
+terminal MENOR_QUE, MAYOR_QUE, MENOR_IGUAL_QUE, MAYOR_IGUAL_QUE, IGUAL_IGUAL, DIFERENTE_DE;
+
+// Operadores Lógicos
+terminal AND, OR, NOT;
+
+// Símbolos de Puntuación y Asignación
+terminal PARENTESIS_A, PARENTESIS_C, PUNTO_Y_COMA, COMA, IGUAL;
+
+/* -------------------- Declaraciones de No Terminales -------------------- */
+// Aquí es donde eventualmente asignarás los tipos de tus nodos del AST.
+// Ejemplo: nonterminal NodoPrograma programa;
+nonterminal Object programa; // Usamos Object por ahora si no tienes nodos AST definidos
+nonterminal Object lista_sentencias;
+nonterminal Object sentencia;
+nonterminal Object bloque_sentencias;
+
+nonterminal Object definicion_variable;
+nonterminal Object asignacion;
+nonterminal Object sentencia_print;
+nonterminal Object expresion;
+nonterminal Object lista_expresiones;
+nonterminal Object lista_expresiones_opcional;
+
+nonterminal Object estructura_if;
+nonterminal Object parte_elseif_opcional;
+nonterminal Object parte_else_opcional;
+nonterminal Object estructura_while;
+nonterminal Object estructura_loop;
+nonterminal Object definicion_funcion;
+nonterminal Object lista_parametros_formales_opcional;
+nonterminal Object lista_parametros_formales;
+nonterminal Object parametro_formal;
+nonterminal Object sentencia_return;
+
+nonterminal Object literal;
+
+/* -------------------- Precedencia y Asociatividad de Operadores -------------------- */
+// De menor a mayor precedencia.
+precedence left OR;
+precedence left AND;
+precedence nonassoc MENOR_QUE, MAYOR_QUE, MENOR_IGUAL_QUE, MAYOR_IGUAL_QUE, IGUAL_IGUAL, DIFERENTE_DE;
+precedence left SUMA, RESTA;
+precedence left MULTIPLICACION, DIVISION;
+precedence right NOT;
+precedence nonassoc THEN; // Para ayudar con el 'dangling else'
+precedence nonassoc ELSE; // Para ayudar con el 'dangling else'
+// El token IF no suele necesitar precedencia directa aquí, se maneja con la estructura de la regla.
+
+/* -------------------- Reglas de la Gramática (Producciones) -------------------- */
+start with programa;
+
+programa ::= lista_sentencias:ls
+            // {: RESULT = new NodoPrograma(ls); :} // Ejemplo con AST
+            ;
+
+lista_sentencias ::= /* lista vacía -> no produce nada o un nodo de lista vacía */
+                    // {: RESULT = new ArrayList<NodoSentencia>(); :}
+                   | lista_sentencias:list sentencia:stmt
+                    // {: list.add(stmt); RESULT = list; :}
+                   // Si quieres que una sola sentencia también sea una lista_sentencias válida desde el inicio:
+                   // | sentencia:stmt
+                   // {: ArrayList<NodoSentencia> l = new ArrayList<>(); l.add(stmt); RESULT = l; :}
+                   ;
+
+// Un bloque de sentencias es lo que va DENTRO de IF/WHILE/LOOP/FUNCTION, usualmente terminado por END.
+// El END que cierra el IF/WHILE etc., es parte de la regla de ESE constructor.
+bloque_sentencias ::= lista_sentencias:ls
+                      // {: RESULT = ls; /* o un NodoBloque(ls) */ :}
+                      ;
+
+sentencia ::= definicion_variable:dv PUNTO_Y_COMA      // {: RESULT = dv; :}
+            | asignacion:as PUNTO_Y_COMA              // {: RESULT = as; :}
+            | sentencia_print:sp PUNTO_Y_COMA         // {: RESULT = sp; :}
+            | estructura_if:ei                        // {: RESULT = ei; :}
+            | estructura_while:ew                     // {: RESULT = ew; :}
+            | estructura_loop:el                      // {: RESULT = el; :}
+            | definicion_funcion:df                   // {: RESULT = df; :}
+            | sentencia_return:sr PUNTO_Y_COMA        // {: RESULT = sr; :}
+            | expresion:ex PUNTO_Y_COMA               // {: RESULT = ex; /* si permites expresiones como sentencias */ :}
+            ;
+
+definicion_variable ::= DEFINE IDENTIFICADOR:id IGUAL expresion:e
+                        // {: RESULT = new NodoDefine(id, e); :}
+                        ;
+
+asignacion ::= IDENTIFICADOR:id IGUAL expresion:e
+               // {: RESULT = new NodoAsignacion(id, e); :}
+               ;
+
+sentencia_print ::= PRINT lista_expresiones:args
+                    // {: RESULT = new NodoPrint(args); :}
+                    ;
+
+lista_expresiones ::= expresion:e
+                      // {: ArrayList<Object> lista = new ArrayList<>(); lista.add(e); RESULT = lista; :}
+                    | lista_expresiones:list COMA expresion:e
+                      // {: list.add(e); RESULT = list; :}
+                    ;
+
+expresion ::= expresion:e1 SUMA expresion:e2
+            | expresion:e1 RESTA expresion:e2
+            | expresion:e1 MULTIPLICACION expresion:e2
+            | expresion:e1 DIVISION expresion:e2
+            | expresion:e1 MENOR_QUE expresion:e2
+            | expresion:e1 MAYOR_QUE expresion:e2
+            | expresion:e1 MENOR_IGUAL_QUE expresion:e2
+            | expresion:e1 MAYOR_IGUAL_QUE expresion:e2
+            | expresion:e1 IGUAL_IGUAL expresion:e2
+            | expresion:e1 DIFERENTE_DE expresion:e2
+            | expresion:e1 AND expresion:e2
+            | expresion:e1 OR expresion:e2
+            | NOT expresion:e
+            | IDENTIFICADOR:id
+            | literal:lit
+            | PARENTESIS_A expresion:e PARENTESIS_C  // {: RESULT = e; :} // Devuelve la expresión interna
+            | IDENTIFICADOR:func_name PARENTESIS_A lista_expresiones_opcional:args PARENTESIS_C
+              // {: RESULT = new NodoLlamadaFuncion(func_name, args); :}
+            ;
+
+lista_expresiones_opcional ::= /* lista vacía de argumentos */ // {: RESULT = new ArrayList<Object>(); :}
+                             | lista_expresiones:list        // {: RESULT = list; :}
+                             ;
+
+literal ::= LITERAL_ENTERO:val
+          | LITERAL_FLOTANTE:val
+          | LITERAL_CADENA:val
+          | TRUE
+          | FALSE
+          ;
+
+estructura_if ::= IF PARENTESIS_A expresion:cond PARENTESIS_C THEN bloque_sentencias:true_stmts parte_elseif_opcional:elseif_stmts parte_else_opcional:else_stmt END
+                  // {: RESULT = new NodoIf(cond, true_stmts, elseif_stmts, else_stmt); :}
+                  ;
+
+parte_elseif_opcional ::= /* no hay elseif */
+                        // {: RESULT = null; /* o una lista vacía de nodos elseif */ :}
+                        | parte_elseif_opcional ELSEIF PARENTESIS_A expresion:cond PARENTESIS_C THEN bloque_sentencias:branch_stmts
+                          // {: /* Lógica para acumular ramas elseif */ :}
+                        ;
+
+parte_else_opcional ::= /* no hay else */
+                      // {: RESULT = null; :}
+                      | ELSE bloque_sentencias:false_stmts
+                        // {: RESULT = false_stmts; /* o un NodoElse(false_stmts) */ :}
+                      ;
+
+estructura_while ::= WHILE PARENTESIS_A expresion:cond PARENTESIS_C DO bloque_sentencias:body_stmts END
+                     // {: RESULT = new NodoWhile(cond, body_stmts); :}
+                     ;
+
+estructura_loop ::= LOOP PARENTESIS_A definicion_variable:init PUNTO_Y_COMA expresion:cond PUNTO_Y_COMA asignacion:incr PARENTESIS_C DO bloque_sentencias:body_stmts END
+                    // {: RESULT = new NodoLoop(init, cond, incr, body_stmts); :}
+                    ;
+
+definicion_funcion ::= FUNCTION IDENTIFICADOR:nombre_func PARENTESIS_A lista_parametros_formales_opcional:params PARENTESIS_C bloque_sentencias:cuerpo_func END
+
+                       ;
+
+// -- REVISIÓN HECHA ARRIBA (en la definición de 'bloque_sentencias' y cómo se usa) --
+// La dejaré como estaba para que el usuario adapte, pero señalando la necesidad de consistencia.
+// Para la lógica de `bloque_sentencias ::= lista_sentencias END;`:
+// Esto implica que `IF (cond) THEN lista_sentencias END ELSE lista_sentencias END END` sería la estructura.
+// Lo más común es: `IF (cond) THEN lista_sentencias END` o `IF (cond) THEN lista_sentencias ELSE lista_sentencias END`
+// El esqueleto que te di antes para IF, WHILE, LOOP, FUNCTION ya incluye los END donde corresponden.
+// El `bloque_sentencias ::= lista_sentencias END` es más para un bloque genérico que siempre termina en END.
+// Para las estructuras de SimpleScript, los END parecen específicos de cada estructura.
+// Así que `bloque_sentencias` podría ser simplemente `lista_sentencias`.
+
+lista_parametros_formales_opcional ::= /* sin parámetros */
+                                     | lista_parametros_formales
+                                     ;
+
+lista_parametros_formales ::= parametro_formal
+                            | lista_parametros_formales COMA parametro_formal
+                            ;
+
+parametro_formal ::= IDENTIFICADOR:id_param
+                     ;
+
+sentencia_return ::= RETURN expresion:val
+                   | RETURN /* sin valor de retorno */
+                   ;
