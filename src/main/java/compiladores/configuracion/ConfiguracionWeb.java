@@ -10,7 +10,7 @@ public class ConfiguracionWeb implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registro) {
         registro.addMapping("/api/**") // Aplica a todas las rutas bajo /api
-                .allowedOrigins("http://localhost:3000")   // Orígenes permitidos (para desarrollo; sé más específico en producción)
+                .allowedOrigins("https://simplescriptfront.onrender.com/","http://localhost:3000")   // Orígenes permitidos (para desarrollo; sé más específico en producción)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(false);
